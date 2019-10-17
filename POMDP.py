@@ -38,13 +38,13 @@ class POMDP:
 		"""
 		self.beliefs = beliefs
 
-	def pAction(self, action, tau=1):
+	def pAction(self, action, tau=0.1):
 		"""
 		Return probability of a specific action.
 		Tau is kind of weird here just because the values are soo huge
 		"""
 		expvalues = np.matmul(self.policy[0], self.beliefs) # alphamatrix * beliefs
-		expvalues = [max([expvalues[z] for z in [i for i, x in enumerate(self.policy[1]) if x == actionid]]) for actionid in range(8)]
+		expvalues = [max([expvalues[z] for z in [i for i, x in enumerate(self.policy[1]) if x == actionid]]) for actionid in range(len(self.actions))]
 		maxval = abs(max(expvalues))
 		expvalues = [x-maxval for x in expvalues]
 		try:

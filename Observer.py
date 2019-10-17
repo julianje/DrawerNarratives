@@ -4,6 +4,7 @@ import sys
 import Hypothesis
 from itertools import permutations
 import matplotlib.pyplot as plt
+from progress.bar import IncrementalBar
 
 class Observer:
 
@@ -29,25 +30,31 @@ class Observer:
 		"""
 		self.BuildKHypothesisSpace() # Build knowledge hypothesis spaces
 		self.InitializeHandPosition()
+		# now construct space of actions:
+		ActionSpace = [list(x) for x in permutations(self.OpenDrawers)]
+		bar = IncrementalBar('Processing', max=len(self.KHypotheses)*len(ActionSpace))
 		for CurrHypothesis in self.KHypotheses:
-			# now construct space of actions:
-			ActionSpace = [list(x) for x in permutations(self.OpenDrawers)]
 			# Ok now run inference for each combination:
 			for actiontest in ActionSpace:
+				bar.next()
+				#sys.stdout.write('/')
 				self.Model.setbeliefs(self.BuildInitialKnowledge(CurrHypothesis[1])) # Initialize knowledge
 				p = 0
 				# assume all observations are empty except last one
 				observations = ['e'] * len(actiontest)
 				observations[-1] = 'f'
 				for i in range(len(actiontest)):
+					#sys.stdout.write('.')
 					p += np.log(self.Model.pAction(actiontest[i]))
-					print(actiontest[i])
-					print(observations[i])
+					#print(actiontest[i])
+					#print(observations[i])
 					actionid = self.Model.actions.index(actiontest[i])
 					observationid = self.Model.observations.index(observations[i])
 					self.Model.updatebeliefs(actionid, observationid)
 				Posterior = Hypothesis.Hypothesis(CurrHypothesis[0],CurrHypothesis[1],self.HandPosition, actiontest, p)
 				self.Posterior.append(Posterior)
+		bar.finish()
+
 
 	def TranslateBelief(self, Belief):
 		"""
@@ -80,30 +87,66 @@ class Observer:
 		These only capture priors over reward positions, without considering
 		knowledge about where the agent's hand begun.
 		"""
-		KnowledgeHypotheses = [["Perfect knowledge", x] for x in self.KnowledgeHypotheses()]
-		RowColumnHypotheses = [["Line knowledge", x] for x in self.LineHypotheses()]
+		# IMPORTANT NOTE:
+		# HYPOTHESES GENERATORS DO NOT RETURN PROPER PROBABILITY DISTRIBUTIONS
+		# BUT THAT'S OKAY BECAUSE THE CONSTANT GETS ADJUSTED LATER.
+		KnowledgeHypotheses = self.KnowledgeHypotheses()
+		RowColumnHypotheses = self.LineHypotheses()
+		MemoryHypotheses = self.MemoryHypotheses()
+		#RowColumnHypotheses = [["Line knowledge", x] for x in self.LineHypotheses()]
 		# Create hypothesis with no knowledge:
 		IgnoranceHypothesis = [["Full ignorance", [1.0/len(self.Model.states)] * len(self.Model.states)]]
-		self.KHypotheses = KnowledgeHypotheses + RowColumnHypotheses + IgnoranceHypothesis
+		self.KHypotheses = KnowledgeHypotheses + RowColumnHypotheses + IgnoranceHypothesis + MemoryHypotheses
 
 	def LineHypotheses(self):
 		"""
 		Return all hypotheses where the agent knows either a row of a column
 		"""
 		# Build row hypotheses:
-		RowHypotheses = [[0] * len(self.Model.states) for x in range(self.DrawerDimensions[0])]
+		RowHypotheses = [[None, [0] * len(self.Model.states)] for x in range(self.DrawerDimensions[0])]
 		for i in range(self.DrawerDimensions[0]):
-			for j in range(len(RowHypotheses[i])):
+			RowHypotheses[i][0] = 'Row ' + str(i)
+			for j in range(len(RowHypotheses[i][1])):
 				# Here i corresponds to hypothesis that things are in row i.
 				if self.Model.states[j][-3:-2] == str(i):
-					RowHypotheses[i][j] = 1
-		ColumnHypotheses = [[0] * len(self.Model.states) for x in range(self.DrawerDimensions[1])]
+					RowHypotheses[i][1][j] = 1
+		ColumnHypotheses = [[None, [0] * len(self.Model.states)] for x in range(self.DrawerDimensions[1])]
 		for i in range(self.DrawerDimensions[1]):
-			for j in range(len(ColumnHypotheses[i])):
+			ColumnHypotheses[i][0] = 'Column ' + str(i)
+			for j in range(len(ColumnHypotheses[i][1])):
 				if self.Model.states[j][-1:] == str(i):
-					ColumnHypotheses[i][j] = 1
+					ColumnHypotheses[i][1][j] = 1
 		H = RowHypotheses + ColumnHypotheses
 		return H
+
+	def MemoryHypotheses(self):
+		"""
+		Return hypotheses were agents has some vague sense of where the object is.
+		"""
+		# We'll do something similar to the knowledge one, but we'll add some graded noise a function of distance.
+		# Reward locations:
+		RewardPositions = list(set([self.Model.states[x].split('_')[1] for x in range(len(self.Model.states)-1)]))
+		Hypotheses = [[None,[0] * len(self.Model.states)] for x in range(len(RewardPositions))]
+		# Now create each hypothesis:
+		for i in range(len(RewardPositions)):
+			Reward = RewardPositions[i]
+			Hypotheses[i][0] = 'Approx-' + Reward
+			MemoryCoords = [int(x) for x in Reward[1:].split('-')]
+			for j in range(len(Hypotheses[i][1])):
+				if self.Model.states[j] != 'Death': # Death is not a position so that always has p=0
+					# Now go through each state and add a probability as a function of the distance from the right drawer:
+					statereward = [int(x) for x in self.Model.states[j][-3:].split('-')]
+					# Now try something like the inverse of the distance:
+					#sys.stdout.write("Memory: "+str(MemoryCoords)+", position"+str(statereward)+": ")
+					denom = np.sqrt((MemoryCoords[0]-statereward[0])**2 + (MemoryCoords[1]-statereward[1])**2)
+					if denom > 0:
+						#sys.stdout.write(str(1.0/denom)+"\n")
+						Hypotheses[i][1][j] = 1.0/denom
+					else:
+						# sys.stdout.write("f2.0\n") # Not normalized, so just to make it twice as likely than one step away
+						Hypotheses[i][1][j] = 2.0
+		return Hypotheses
+
 
 	def KnowledgeHypotheses(self):
 		"""
@@ -112,18 +155,19 @@ class Observer:
 		"""
 		# Reward locations:
 		RewardPositions = list(set([self.Model.states[x].split('_')[1] for x in range(len(self.Model.states)-1)]))
-		Hypotheses = [[0] * len(self.Model.states) for x in range(len(RewardPositions))]
+		Hypotheses = [[None,[0.05] * len(self.Model.states)] for x in range(len(RewardPositions))]
 		# Now create each hypothesis:
 		for i in range(len(RewardPositions)):
 			Reward = RewardPositions[i]
-			for j in range(len(Hypotheses[i])):
+			Hypotheses[i][0] = Reward
+			for j in range(len(Hypotheses[i][1])):
 				# Now go through each state and check if it contains reward in the right place:
 				statereward = self.Model.states[j][-4:]
 				if statereward == Reward:
-					Hypotheses[i][j] = 1
+					Hypotheses[i][1][j] = 0.9
 		return Hypotheses
 
-	def ProcessPosterior(self):
+	def ProcessPosterior(self, round=True):
 		"""
 		The posterior is in this messier thing, so this function integrates things
 		"""
@@ -131,6 +175,8 @@ class Observer:
 		Norm = sum([np.exp(x.Belief) for x in self.Posterior])
 		for i in range(len(self.Posterior)):
 			self.Posterior[i].Belief = np.exp(self.Posterior[i].Belief)/Norm
+			if round:
+				self.Posterior[i].Belief = np.round(self.Posterior[i].Belief,2)
 		# Now, marginalize over different things:
 		ActionPosterior = {}
 		KnowledgeTypePosterior = {}
@@ -145,13 +191,18 @@ class Observer:
 				KnowledgeTypePosterior[KT] += self.Posterior[i].Belief
 			else:
 				KnowledgeTypePosterior[KT] = self.Posterior[i].Belief
-		
+		return [ActionPosterior, KnowledgeTypePosterior]
 
-	def PlotPosterior(self, FinalPosterior):
+
+	def PlotPosterior(self, FinalPosterior, DeleteZeros=True):
 		""" 
 		Take a dictionary and plot it
 		"""
-		plt.barh(range(len(FinalPosterior[0])), FinalPosterior[0], align='center')
-		plt.yticks(range(len(FinalPosterior[0])), FinalPosterior[1])
+		if DeleteZeros:
+			FinalPosterior = {key:val for key, val in FinalPosterior.items() if val != 0}
+		xvals = list(FinalPosterior.keys())
+		yvals = list(FinalPosterior.values())
+		plt.barh(range(len(yvals)), yvals, align='center')
+		plt.yticks(range(len(yvals)), xvals)
 		plt.show()
 
