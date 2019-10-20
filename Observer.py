@@ -24,7 +24,7 @@ class Observer:
 	def load(self):
 		self.Model.loadPOMDP()
 
-	def InferKnowledge(self):
+	def InferKnowledge(self, tau=0.1):
 		"""
 		Infer what initial knowledge best explains open drawers
 		"""
@@ -32,7 +32,7 @@ class Observer:
 		self.InitializeHandPosition()
 		# now construct space of actions:
 		ActionSpace = [list(x) for x in permutations(self.OpenDrawers)]
-		bar = IncrementalBar('Processing', max=len(self.KHypotheses)*len(ActionSpace))
+		bar = IncrementalBar('', max=len(self.KHypotheses)*len(ActionSpace), suffix='%(percent)d%%')
 		for CurrHypothesis in self.KHypotheses:
 			# Ok now run inference for each combination:
 			for actiontest in ActionSpace:
@@ -45,7 +45,7 @@ class Observer:
 				observations[-1] = 'f'
 				for i in range(len(actiontest)):
 					#sys.stdout.write('.')
-					p += np.log(self.Model.pAction(actiontest[i]))
+					p += np.log(self.Model.pAction(actiontest[i], tau=tau))
 					#print(actiontest[i])
 					#print(observations[i])
 					actionid = self.Model.actions.index(actiontest[i])
@@ -138,13 +138,16 @@ class Observer:
 					statereward = [int(x) for x in self.Model.states[j][-3:].split('-')]
 					# Now try something like the inverse of the distance:
 					#sys.stdout.write("Memory: "+str(MemoryCoords)+", position"+str(statereward)+": ")
-					denom = np.sqrt((MemoryCoords[0]-statereward[0])**2 + (MemoryCoords[1]-statereward[1])**2)
+					# Option 1: distance to the 4th
+					#denom = ((MemoryCoords[0]-statereward[0])**2 + (MemoryCoords[1]-statereward[1])**2)**2
+					# Option 2: Exponential
+					denom = 0.01**np.sqrt((MemoryCoords[0]-statereward[0])**2 + (MemoryCoords[1]-statereward[1])**2)
 					if denom > 0:
 						#sys.stdout.write(str(1.0/denom)+"\n")
-						Hypotheses[i][1][j] = 1.0/denom
+						Hypotheses[i][1][j] = denom
 					else:
 						# sys.stdout.write("f2.0\n") # Not normalized, so just to make it twice as likely than one step away
-						Hypotheses[i][1][j] = 2.0
+						Hypotheses[i][1][j] = 1.0
 		return Hypotheses
 
 
@@ -155,7 +158,7 @@ class Observer:
 		"""
 		# Reward locations:
 		RewardPositions = list(set([self.Model.states[x].split('_')[1] for x in range(len(self.Model.states)-1)]))
-		Hypotheses = [[None,[0.05] * len(self.Model.states)] for x in range(len(RewardPositions))]
+		Hypotheses = [[None,[0.01] * len(self.Model.states)] for x in range(len(RewardPositions))]
 		# Now create each hypothesis:
 		for i in range(len(RewardPositions)):
 			Reward = RewardPositions[i]
@@ -164,8 +167,20 @@ class Observer:
 				# Now go through each state and check if it contains reward in the right place:
 				statereward = self.Model.states[j][-4:]
 				if statereward == Reward:
-					Hypotheses[i][1][j] = 0.9
+					Hypotheses[i][1][j] = 5
 		return Hypotheses
+
+	def PrintPosterior(self):
+		"""
+		Prints all non-zero hypotheses, ranked by probability
+		"""
+		# First retrieve only hypotheses with p>0
+		Probable = [x for x in self.Posterior if x.Belief>0]
+		# Get beliefs
+		Beliefs = [x.Belief for x in Probable]
+		BeliefOrder = np.argsort(Beliefs)
+		for i in range(len(BeliefOrder)-1,-1,-1): # Decreasing
+			sys.stdout.write(Probable[BeliefOrder[i]].KnowledgeType+"\t"+str(Probable[BeliefOrder[i]].Actions)+"\t"+str(Probable[BeliefOrder[i]].Belief)+"\n") 
 
 	def ProcessPosterior(self, round=True):
 		"""
@@ -194,15 +209,28 @@ class Observer:
 		return [ActionPosterior, KnowledgeTypePosterior]
 
 
-	def PlotPosterior(self, FinalPosterior, DeleteZeros=True):
+	def PlotPosterior(self, FinalPosterior, Title='', DeleteZeros=True):
 		""" 
 		Take a dictionary and plot it
 		"""
+		Knowledge = FinalPosterior[1]
 		if DeleteZeros:
-			FinalPosterior = {key:val for key, val in FinalPosterior.items() if val != 0}
-		xvals = list(FinalPosterior.keys())
-		yvals = list(FinalPosterior.values())
+			Knowledge = {key:val for key, val in Knowledge.items() if val != 0}
+		xvals = list(Knowledge.keys())
+		yvals = list(Knowledge.values())
+		plt.subplot(2, 1, 1)
+		plt.title(Title)
 		plt.barh(range(len(yvals)), yvals, align='center')
 		plt.yticks(range(len(yvals)), xvals)
+		plt.ylabel('Inferred knowledge')
+		Actions = FinalPosterior[0]
+		if DeleteZeros:
+			Actions = {key:val for key, val in Actions.items() if val != 0}
+		xvalsb = list(Actions.keys())
+		yvalsb = list(Actions.values())
+		plt.subplot(2, 1, 2)
+		plt.barh(range(len(yvalsb)), yvalsb, align='center')
+		plt.yticks(range(len(yvals)), xvalsb)
+		plt.ylabel('Inferred actions')
 		plt.show()
 
