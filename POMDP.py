@@ -50,7 +50,10 @@ class POMDP:
 		try:
 			expvalues = [math.exp(x*1.0/tau) for x in expvalues]
 			norm = sum(expvalues)
-			expvalues = [x/norm for x in expvalues]
+			if norm == 0:
+				expvalues = [0 for x in expvalues]
+			else:
+				expvalues = [x/norm for x in expvalues]
 			return expvalues[self.actions.index(action)]
 		except OverflowError:
 			print("Couldn't softmax!")
