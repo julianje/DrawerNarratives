@@ -128,8 +128,8 @@ def PrintPOMDP(POMDPList):
 			filewriter.write('R: ' + reward[0] + ' : ' + reward[1] + ' : ' + reward[2] + ' : ' + reward[3] + ' ' + str(reward[4]) + '\n')
 	filewriter.close()
 
-DrawerDimensions = [3, 4] # 3 rows, 4 columns
-TrialName = "Drawer3x4space"
+DrawerDimensions = [4, 4] # 3 rows, 4 columns
+TrialName = "Drawer4x4space"
 
 sys.stdout.write("Generating "+TrialName+".POMDP... ")
 PrintPOMDP(BuildPOMDP(TrialName,DrawerDimensions))
