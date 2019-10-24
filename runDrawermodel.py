@@ -1,16 +1,6 @@
 import numpy as np
 import Observer
 import sys
-# THINGS MISSING:
-# 1. REMEMBERING IN BETWEEN
-# 2. COLOR INFORMATION
-# 3. In memory, we can do noisy memory around a drawer
-# so middle doesn't quite work.
-
-# TO DO:
-# Fix memory hypotheses. Add first a filter abut which ones are allowed to be "memory centers"
-# And fix the memory decay
-
 
 # CONVENTIONS:
 # First entry is always row and second is column for drawers
@@ -25,10 +15,14 @@ WorldModel = Basefile+'.POMDP'
 AgentModel = Basefile+'.policy'
 
 # open one drawer in the middle
-#OpenDrawers = ['m1-2']
+OpenDrawers = ['m1-2']
 
 # open top left corner
 #OpenDrawers = ['m0-0','m0-1', 'm1-0']
+
+# Color test:
+#OpenDrawers = ['m1-1','m2-1']
+#Colors = np.array([[0,0,0,0],[0,1,0,0],[0,1,0,0]])
 
 # open first row and then go down
 #OpenDrawers = ['m0-0','m0-1','m0-2','m1-2']
@@ -37,10 +31,13 @@ AgentModel = Basefile+'.policy'
 #OpenDrawers = ['m0-0','m0-1','m1-1']
 
 # top left, middle left
-#OpenDrawers = ['m0-0','m1-0']
+OpenDrawers = ['m0-0','m1-0']
+
+# memory test
+#OpenDrawers = ['m0-0','m0-1','m2-2']
 
 # open first row
-OpenDrawers = ['m0-0','m0-1', 'm0-2']
+#OpenDrawers = ['m0-0','m0-1', 'm0-2']
 
 # open two drawers in the middle
 #OpenDrawers = ['m2-3','m2-2']
@@ -48,11 +45,14 @@ OpenDrawers = ['m0-0','m0-1', 'm0-2']
 # Part 2: Load model and run inference
 sys.stdout.write("Loading model and policy...\n")
 Observer = Observer.Observer(WorldModel, AgentModel, OpenDrawers, DrawerDimensions)
+
+#Observer = Observer.Observer(WorldModel, AgentModel, OpenDrawers, DrawerDimensions, Colors)
+
 Observer.load()
 sys.stdout.write("Inferring knowledge...\n")
 Observer.InferKnowledge(Rationality)
 
 # Part 3: Process posterior distribution and visualize
-Results = Observer.ProcessPosterior(round=True)
+Results = Observer.ProcessPosterior(rounded=True)
 Observer.PrintPosterior()
 #Observer.PlotPosterior(Results, Title='_'.join(OpenDrawers))
