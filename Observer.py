@@ -5,10 +5,13 @@ import Hypothesis
 from itertools import permutations
 import matplotlib.pyplot as plt
 from progress.bar import IncrementalBar
+from math import inf
+import csv
+import time
 
 class Observer:
 
-	def __init__(self, POMDPFile, PolicyFile, OpenDrawers, DrawerDimensions):
+	def __init__(self, POMDPFile, PolicyFile, OpenDrawers, DrawerDimensions, ColorCoding = None):
 		"""
 		Take a .POMDP file, a .policy file, and a set of open drawers
 		"""
@@ -20,41 +23,62 @@ class Observer:
 		self.KHypotheses = [] # Hypotheses about what the agent knows
 		self.HandPosition = [] # Distribution of hand starting point
 		self.Posterior = []
+		self.RecallPrior = None # This is the probability that an agent will suddenly remember.
+		if ColorCoding is None:
+			self.DrawerColors = np.zeros(self.DrawerDimensions)
+		else:
+			self.DrawerColors = ColorCoding
 
 	def load(self):
 		self.Model.loadPOMDP()
 
-	def InferKnowledge(self, tau=0.1):
+	def InferKnowledge(self, tau=0.1, progressbar = True):
 		"""
 		Infer what initial knowledge best explains open drawers
+		This code first generates all hypotheses, and then duplicates each one to account for potential remembering
+		This is for efficiency because if the agent remembered, it will always happen in the last frame.
 		"""
 		self.BuildKHypothesisSpace() # Build knowledge hypothesis spaces
 		self.InitializeHandPosition()
 		# now construct space of actions:
 		ActionSpace = [list(x) for x in permutations(self.OpenDrawers)]
-		bar = IncrementalBar('', max=len(self.KHypotheses)*len(ActionSpace), suffix='%(percent)d%%')
+		if progressbar:
+			bar = IncrementalBar('', max=len(self.KHypotheses)*len(ActionSpace), suffix='%(percent)d%%')
 		for CurrHypothesis in self.KHypotheses:
 			# Ok now run inference for each combination:
 			for actiontest in ActionSpace:
-				bar.next()
+				if progressbar:
+					bar.next()
 				#sys.stdout.write('/')
 				self.Model.setbeliefs(self.BuildInitialKnowledge(CurrHypothesis[1])) # Initialize knowledge
-				p = 0
+				p = np.log(CurrHypothesis[2]) # Initialize with the prior
+				pmem = np.log(CurrHypothesis[2]) + np.log(self.RecallPrior)
 				# assume all observations are empty except last one
 				observations = ['e'] * len(actiontest)
 				observations[-1] = 'f'
-				for i in range(len(actiontest)):
+				# TO DUPLICATE EACH HYPOTHESES AND INCLUDE A KNOWLEDGE ONE
+				for i in range(len(actiontest)-1):
 					#sys.stdout.write('.')
-					p += np.log(self.Model.pAction(actiontest[i], tau=tau))
+					prob = self.Model.pAction(actiontest[i], tau=tau)
+					Likelhood = np.log(prob) if prob != 0 else -inf
+					p += Likelhood
+					pmem += Likelhood
 					#print(actiontest[i])
 					#print(observations[i])
 					actionid = self.Model.actions.index(actiontest[i])
 					observationid = self.Model.observations.index(observations[i])
 					self.Model.updatebeliefs(actionid, observationid)
+				# Now there's just one final action
+				# In the memory case, that last action has likelihood 1 since you'll go wherever you remember:
+				Posterior = Hypothesis.Hypothesis('Mem-'+CurrHypothesis[0],CurrHypothesis[1],self.HandPosition, actiontest, pmem)
+				self.Posterior.append(Posterior)
+				# And now update to the last observation in the no memory case and store
+				newprob = self.Model.pAction(actiontest[-1], tau=tau)
+				p += np.log(newprob) if newprob != 0 else -inf
 				Posterior = Hypothesis.Hypothesis(CurrHypothesis[0],CurrHypothesis[1],self.HandPosition, actiontest, p)
 				self.Posterior.append(Posterior)
-		bar.finish()
-
+		if progressbar:
+			bar.finish()
 
 	def TranslateBelief(self, Belief):
 		"""
@@ -90,27 +114,39 @@ class Observer:
 		# IMPORTANT NOTE:
 		# HYPOTHESES GENERATORS DO NOT RETURN PROPER PROBABILITY DISTRIBUTIONS
 		# BUT THAT'S OKAY BECAUSE THE CONSTANT GETS ADJUSTED LATER.
-		KnowledgeHypotheses = self.KnowledgeHypotheses()
-		RowColumnHypotheses = self.LineHypotheses()
-		MemoryHypotheses = self.MemoryHypotheses()
-		#RowColumnHypotheses = [["Line knowledge", x] for x in self.LineHypotheses()]
+		KnowledgeHypotheses = self.KnowledgeHypotheses(prior = 5)
+		RowColumnHypotheses = self.LineHypotheses(prior = 2.5)
+		MemoryHypotheses = self.MemoryHypotheses(prior = 7.5)
+		ColorHypotheses = self.ColorHypotheses(prior = 7.5)
+		IgnoranceHypothesis = self.IgnoranceHypothesis(prior = 15)
 		# Create hypothesis with no knowledge:
-		IgnoranceHypothesis = [["Full ignorance", [1.0/len(self.Model.states)] * len(self.Model.states)]]
-		self.KHypotheses = KnowledgeHypotheses + RowColumnHypotheses + IgnoranceHypothesis + MemoryHypotheses
+		self.KHypotheses = KnowledgeHypotheses + RowColumnHypotheses + IgnoranceHypothesis + MemoryHypotheses + ColorHypotheses
+		# Now standardize the prior:
+		Norm = sum([x[2] for x in self.KHypotheses])
+		self.KHypotheses = [[x[0], x[1], x[2]/Norm] for x in self.KHypotheses]
+		# Finally, add the probability of remembering. This is hypothesis independent, since it can happen with any hypothesis
+		self.RecallPrior = 0.01
 
-	def LineHypotheses(self):
+	def IgnoranceHypothesis(self, prior=1):
+		"""
+		Build ignorance hypothesis
+		"""
+		IgnoranceHypothesis = [["Full ignorance", [1.0/len(self.Model.states)] * len(self.Model.states), prior]]
+		return IgnoranceHypothesis
+
+	def LineHypotheses(self, prior=1):
 		"""
 		Return all hypotheses where the agent knows either a row of a column
 		"""
 		# Build row hypotheses:
-		RowHypotheses = [[None, [0] * len(self.Model.states)] for x in range(self.DrawerDimensions[0])]
+		RowHypotheses = [[None, [0] * len(self.Model.states), prior] for x in range(self.DrawerDimensions[0])]
 		for i in range(self.DrawerDimensions[0]):
 			RowHypotheses[i][0] = 'Row ' + str(i)
 			for j in range(len(RowHypotheses[i][1])):
 				# Here i corresponds to hypothesis that things are in row i.
 				if self.Model.states[j][-3:-2] == str(i):
 					RowHypotheses[i][1][j] = 1
-		ColumnHypotheses = [[None, [0] * len(self.Model.states)] for x in range(self.DrawerDimensions[1])]
+		ColumnHypotheses = [[None, [0] * len(self.Model.states), prior] for x in range(self.DrawerDimensions[1])]
 		for i in range(self.DrawerDimensions[1]):
 			ColumnHypotheses[i][0] = 'Column ' + str(i)
 			for j in range(len(ColumnHypotheses[i][1])):
@@ -119,14 +155,14 @@ class Observer:
 		H = RowHypotheses + ColumnHypotheses
 		return H
 
-	def MemoryHypotheses(self):
+	def MemoryHypotheses(self, prior=1):
 		"""
 		Return hypotheses were agents has some vague sense of where the object is.
 		"""
 		# We'll do something similar to the knowledge one, but we'll add some graded noise a function of distance.
 		# Reward locations:
 		RewardPositions = list(set([self.Model.states[x].split('_')[1] for x in range(len(self.Model.states)-1)]))
-		Hypotheses = [[None,[0] * len(self.Model.states)] for x in range(len(RewardPositions))]
+		Hypotheses = [[None,[0] * len(self.Model.states), prior] for x in range(len(RewardPositions))]
 		# Now create each hypothesis:
 		for i in range(len(RewardPositions)):
 			Reward = RewardPositions[i]
@@ -150,15 +186,35 @@ class Observer:
 						Hypotheses[i][1][j] = 1.0
 		return Hypotheses
 
+	def ColorHypotheses(self, prior=1):
+		"""
+		Return all hypotheses where the agent knows it's in one of the colors.
+		"""
+		if np.array_equal(self.DrawerColors, np.zeros(self.DrawerDimensions)):
+			return []
+		colors = np.unique(self.DrawerColors)
+		Hypotheses = [[None,[0] * len(self.Model.states), prior] for x in range(len(colors))]
+		for colorindex in range(len(colors)):
+			indices = np.where(self.DrawerColors == colors[colorindex]) # Retrieve color positions
+			Hypotheses[colorindex][0] = 'color_' + str(colors[colorindex])
+			for position in range(len(indices[0])): # 0 or 1 are fine, since this is two arrays, one with x and one with y coordiantes.
+				xval = indices[0][position]
+				yval = indices[1][position]
+				# Now cycle through state space and mark the relevant ones
+				for stateindex in range(len(self.Model.states)-1): # Except Death state
+					# Retrieve position of reward and check if it matches:
+					if xval==int(self.Model.states[stateindex][-3:-2]) and yval==int(self.Model.states[stateindex][-1:]):
+						Hypotheses[colorindex][1][stateindex] = 1
+		return Hypotheses
 
-	def KnowledgeHypotheses(self):
+	def KnowledgeHypotheses(self, prior=1):
 		"""
 		Return all hypotheses where the agent already knows where the object is,
 		for each possible object position
 		"""
 		# Reward locations:
 		RewardPositions = list(set([self.Model.states[x].split('_')[1] for x in range(len(self.Model.states)-1)]))
-		Hypotheses = [[None,[0.01] * len(self.Model.states)] for x in range(len(RewardPositions))]
+		Hypotheses = [[None,[0.01] * len(self.Model.states), prior] for x in range(len(RewardPositions))]
 		# Now create each hypothesis:
 		for i in range(len(RewardPositions)):
 			Reward = RewardPositions[i]
@@ -182,16 +238,11 @@ class Observer:
 		for i in range(len(BeliefOrder)-1,-1,-1): # Decreasing
 			sys.stdout.write(Probable[BeliefOrder[i]].KnowledgeType+"\t"+str(Probable[BeliefOrder[i]].Actions)+"\t"+str(Probable[BeliefOrder[i]].Belief)+"\n") 
 
-	def ProcessPosterior(self, round=True):
+	def ProcessPosterior(self, rounded=True):
 		"""
 		The posterior is in this messier thing, so this function integrates things
 		"""
-		# First switch back to regular probabilities
-		Norm = sum([np.exp(x.Belief) for x in self.Posterior])
-		for i in range(len(self.Posterior)):
-			self.Posterior[i].Belief = np.exp(self.Posterior[i].Belief)/Norm
-			if round:
-				self.Posterior[i].Belief = np.round(self.Posterior[i].Belief,2)
+		self.NormalizePosterior(rounded)
 		# Now, marginalize over different things:
 		ActionPosterior = {}
 		KnowledgeTypePosterior = {}
@@ -208,6 +259,34 @@ class Observer:
 				KnowledgeTypePosterior[KT] = self.Posterior[i].Belief
 		return [ActionPosterior, KnowledgeTypePosterior]
 
+	def NormalizePosterior(self, rounded=True):
+		"""
+		Integreate prior and normalize the posterior distrbution
+		"""
+		# First switch back to regular probabilities
+		Norm = sum([np.exp(x.Belief) for x in self.Posterior])
+		for i in range(len(self.Posterior)):
+			self.Posterior[i].Belief = np.exp(self.Posterior[i].Belief)/Norm
+			if rounded:
+				self.Posterior[i].Belief = np.round(self.Posterior[i].Belief,2)
+
+	def SaveResults(self,filename, tid=None, header=True):
+		"""
+		Save posterior
+		"""
+		Time = time.asctime(time.localtime(time.time()))
+		with open(filename, 'a', newline='') as csvfile:
+			filewriter = csv.writer(csvfile, delimiter=',')
+			if header:
+				filewriter.writerow(['TrialId','Timestamp','Drawers','Actions','Knowledge','Probability'])
+			for H in self.Posterior:
+				Actions = '_'.join(H.Actions)
+				KT = H.KnowledgeType
+				p = H.Belief
+				Drawers = '_'.join(self.OpenDrawers)
+				filewriter.writerow([tid, Time, Drawers, Actions, KT, p])
+			#filewriter.writerow(['Spam'] * 5 + ['Baked Beans'])
+			#filewriter.writerow(['Spam', 'Lovely Spam', 'Wonderful Spam'])
 
 	def PlotPosterior(self, FinalPosterior, Title='', DeleteZeros=True):
 		""" 
