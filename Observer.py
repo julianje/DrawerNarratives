@@ -32,16 +32,35 @@ class Observer:
 	def load(self):
 		self.Model.loadPOMDP()
 
-	def InferKnowledge(self, tau=0.1, progressbar = True):
+	def ComputeActionDistance(self, actions):
+		"""
+		Internal supporting function.
+		Take a list of actions and compute total distance that the hand travelled
+		"""
+		# Transform actions into coordinates
+		ActionCoords = [[int(x[1]),int(x[3])] for x in actions]
+		dist = sum([(ActionCoords[i-1][0]-ActionCoords[i][0])**2 + (ActionCoords[i-1][1]-ActionCoords[i][1])**2 for i in range(1,len(ActionCoords))])
+		return dist
+
+	def InferKnowledge(self, tau=0.1, progressbar = True, dumboptimize=100):
 		"""
 		Infer what initial knowledge best explains open drawers
 		This code first generates all hypotheses, and then duplicates each one to account for potential remembering
 		This is for efficiency because if the agent remembered, it will always happen in the last frame.
+		# Dumb optimize receives a percentage p and only considers the p% of shortest action paths.
 		"""
 		self.BuildKHypothesisSpace() # Build knowledge hypothesis spaces
 		self.InitializeHandPosition()
+		# Re initialize posterior
+		self.Posterior = []
 		# now construct space of actions:
 		ActionSpace = [list(x) for x in permutations(self.OpenDrawers)]
+		Distances = [self.ComputeActionDistance(x) for x in ActionSpace]
+		# Now reduce action space based on dumboptimize percentage:
+		ActionsConsidered = int(np.ceil(len(Distances)*dumboptimize/100))
+		ActionIndices = np.argsort(Distances)[:ActionsConsidered]
+		ActionSpace = [ActionSpace[x] for x in ActionIndices]
+		# End of action space reduction
 		if progressbar:
 			bar = IncrementalBar('', max=len(self.KHypotheses)*len(ActionSpace), suffix='%(percent)d%%')
 		for CurrHypothesis in self.KHypotheses:
@@ -240,7 +259,7 @@ class Observer:
 
 	def ProcessPosterior(self, rounded=True):
 		"""
-		The posterior is in this messier thing, so this function integrates things
+		The posterior is in this messier thing, so this function computes the marginals over actions and knowledge
 		"""
 		self.NormalizePosterior(rounded)
 		# Now, marginalize over different things:
@@ -272,7 +291,8 @@ class Observer:
 
 	def SaveResults(self,filename, tid=None, header=True):
 		"""
-		Save posterior
+		Save posterior.
+		tid is TrialId
 		"""
 		Time = time.asctime(time.localtime(time.time()))
 		with open(filename, 'a', newline='') as csvfile:
