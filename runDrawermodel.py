@@ -6,11 +6,12 @@ import sys
 # First entry is always row and second is column for drawers
 
 # Part 1: Set model parameters
-DrawerDimensions = [3, 4] # 3 rows
+#DrawerDimensions = [3, 4] # 3 rows
+DrawerDimensions = [4, 4]
 Rationality = 0.01
 
 # Build filenames
-Basefile = 'Drawer'+str(DrawerDimensions[0])+'x'+str(DrawerDimensions[1])+'space'
+Basefile = 'POMDPs/Drawer'+str(DrawerDimensions[0])+'x'+str(DrawerDimensions[1])+'space'
 WorldModel = Basefile+'.POMDP'
 AgentModel = Basefile+'.policy'
 
