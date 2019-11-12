@@ -64,6 +64,19 @@ class Observer:
 		if progressbar:
 			bar = IncrementalBar('', max=len(self.KHypotheses)*len(ActionSpace), suffix='%(percent)d%%')
 		for CurrHypothesis in self.KHypotheses:
+			if CurrHypothesis[0] == "Play":
+				# In play, assume costs did not factor into choice but agent was noenetheless efficient
+				StateSpaceSize = self.DrawerDimensions[0] * self.DrawerDimensions[1]
+				# Prior times likelihood
+				p = np.log(CurrHypothesis[2]) + sum([np.log(1.0/(16-i)) for i in range(len(self.OpenDrawers))]) # Uniform over any actions.
+				# Get most efficient action space:
+				# This code is very similar to the one above, but adding the initial hand position to get the most efficient action space:
+				ActionSpaceB = [['m0-0']+list(x) for x in permutations(self.OpenDrawers)]
+				DistancesB = [self.ComputeActionDistance(x) for x in ActionSpaceB]
+				Playactions = ActionSpace[np.argsort(DistancesB)[0]]
+				myPosterior = Hypothesis.Hypothesis(CurrHypothesis[0],CurrHypothesis[1],self.HandPosition, Playactions, p)
+				self.Posterior.append(myPosterior)
+				continue
 			# Ok now run inference for each combination:
 			for actiontest in ActionSpace:
 				if progressbar:
@@ -89,13 +102,19 @@ class Observer:
 					self.Model.updatebeliefs(actionid, observationid)
 				# Now there's just one final action
 				# In the memory case, that last action has likelihood 1 since you'll go wherever you remember:
-				Posterior = Hypothesis.Hypothesis('Mem-'+CurrHypothesis[0],CurrHypothesis[1],self.HandPosition, actiontest, pmem)
+				# If we just do this, then the model considers hypotheses where you didn't know and you remembered before your first
+				# action. That's technically correct, but is odd, so we'll add one conditional that sets memory to 0 if you remembered
+				# before your first action!
+				if len(self.OpenDrawers) == 1:
+					Posterior = Hypothesis.Hypothesis('Mem-'+CurrHypothesis[0],CurrHypothesis[1],self.HandPosition, actiontest, np.log(0))
+				else:
+					Posterior = Hypothesis.Hypothesis('Mem-'+CurrHypothesis[0],CurrHypothesis[1],self.HandPosition, actiontest, pmem)
 				self.Posterior.append(Posterior)
 				# And now update to the last observation in the no memory case and store
 				newprob = self.Model.pAction(actiontest[-1], tau=tau)
 				p += np.log(newprob) if newprob != 0 else -inf
-				Posterior = Hypothesis.Hypothesis(CurrHypothesis[0],CurrHypothesis[1],self.HandPosition, actiontest, p)
-				self.Posterior.append(Posterior)
+				myPosterior = Hypothesis.Hypothesis(CurrHypothesis[0],CurrHypothesis[1],self.HandPosition, actiontest, p)
+				self.Posterior.append(myPosterior)
 		if progressbar:
 			bar.finish()
 
@@ -133,18 +152,28 @@ class Observer:
 		# IMPORTANT NOTE:
 		# HYPOTHESES GENERATORS DO NOT RETURN PROPER PROBABILITY DISTRIBUTIONS
 		# BUT THAT'S OKAY BECAUSE THE CONSTANT GETS ADJUSTED LATER.
-		KnowledgeHypotheses = self.KnowledgeHypotheses(prior = 5)
+		KnowledgeHypotheses = self.KnowledgeHypotheses(prior = 10)
 		RowColumnHypotheses = self.LineHypotheses(prior = 2.5)
-		MemoryHypotheses = self.MemoryHypotheses(prior = 7.5)
-		ColorHypotheses = self.ColorHypotheses(prior = 7.5)
+		MemoryHypotheses = self.MemoryHypotheses(prior = 2.5)
+		ColorHypotheses = self.ColorHypotheses(prior = 5)
 		IgnoranceHypothesis = self.IgnoranceHypothesis(prior = 15)
+		PlayHypothesis = self.PlayHypothesis(prior = 1)
 		# Create hypothesis with no knowledge:
-		self.KHypotheses = KnowledgeHypotheses + RowColumnHypotheses + IgnoranceHypothesis + MemoryHypotheses + ColorHypotheses
+		self.KHypotheses = KnowledgeHypotheses + RowColumnHypotheses + IgnoranceHypothesis + MemoryHypotheses + ColorHypotheses + PlayHypothesis
 		# Now standardize the prior:
 		Norm = sum([x[2] for x in self.KHypotheses])
 		self.KHypotheses = [[x[0], x[1], x[2]/Norm] for x in self.KHypotheses]
 		# Finally, add the probability of remembering. This is hypothesis independent, since it can happen with any hypothesis
 		self.RecallPrior = 0.01
+
+	def PlayHypothesis(self, prior=1):
+		"""
+		Build play hypothesis.
+		THIS IS A PLACEHOLDER. When you're playing you don't care about the object
+		The main function will just use a uniform, but we need some place holder for the main hypothesis space
+		"""
+		Play = [["Play", [1.0/len(self.Model.states)] * len(self.Model.states), prior]]
+		return Play
 
 	def IgnoranceHypothesis(self, prior=1):
 		"""
@@ -177,6 +206,38 @@ class Observer:
 	def MemoryHypotheses(self, prior=1):
 		"""
 		Return hypotheses were agents has some vague sense of where the object is.
+		"""
+		# We'll do something similar to the knowledge one, but we'll add some graded noise a function of distance.
+		# Reward locations:
+		RewardPositions = [[x+0.5,y+0.5] for x in range(self.DrawerDimensions[0]-1) for y in range(self.DrawerDimensions[1]-1)]
+		Hypotheses = [[None,[0] * len(self.Model.states), prior] for x in range(len(RewardPositions))]
+		# Now create each hypothesis:
+		for i in range(len(RewardPositions)):
+			Reward = RewardPositions[i]
+			Hypotheses[i][0] = 'Approx-' + '-'.join(map(str, Reward))
+			MemoryCoords = Reward
+			for j in range(len(Hypotheses[i][1])):
+				if self.Model.states[j] != 'Death': # Death is not a position so that always has p=0
+					# Now go through each state and add a probability as a function of the distance from the right drawer:
+					statereward = [int(x) for x in self.Model.states[j][-3:].split('-')]
+					# Now try something like the inverse of the distance:
+					#sys.stdout.write("Memory: "+str(MemoryCoords)+", position"+str(statereward)+": ")
+					# Option 1: distance to the 4th
+					#denom = ((MemoryCoords[0]-statereward[0])**2 + (MemoryCoords[1]-statereward[1])**2)**2
+					# Option 2: Exponential
+					denom = 0.01**np.sqrt((MemoryCoords[0]-statereward[0])**2 + (MemoryCoords[1]-statereward[1])**2)
+					if denom > 0:
+						#sys.stdout.write(str(1.0/denom)+"\n")
+						Hypotheses[i][1][j] = denom
+					else:
+						# sys.stdout.write("f2.0\n") # Not normalized, so just to make it twice as likely than one step away
+						Hypotheses[i][1][j] = 1.0
+		return Hypotheses
+
+	def MemoryHypotheses_DrawerCenter(self, prior=1):
+		"""
+		Return hypotheses were agents has some vague sense of where the object is.
+		This is old code that centers the memroy around a drawer, instead of at the corner of several drawers.
 		"""
 		# We'll do something similar to the knowledge one, but we'll add some graded noise a function of distance.
 		# Reward locations:
