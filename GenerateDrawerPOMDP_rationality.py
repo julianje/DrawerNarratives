@@ -22,6 +22,12 @@ def BuildPOMDP(TrialName, DrawerDimensions, PlanningReward = 50, FutureDiscount 
 	
 	# Create prior
 	InitialBelief = [1.0/len(States)] * len(States)
+	# Create prior with hand-initialized position
+	StateSpace = DrawerDimensions[0] * DrawerDimensions[1]
+	temp = [1] + [0] * (StateSpace - 1)
+	InitialBelief = temp * StateSpace
+	InitialBelief.append(0)
+	InitialBelief = [x*1.0/sum(InitialBelief) for x in InitialBelief]
 
 	# Create actions: move to position x
 	Actions = ["m"+x for x in BaseStates] + ['Take']
@@ -104,7 +110,7 @@ def PrintPOMDP(POMDPList):
 	"""
 	[TrialName, FutureDiscount, States, Actions, Observations, InitialBelief, T, O, R] = POMDPList
 	TrialName = TrialName.rstrip('\r\n')
-	filewriter = open(TrialName+".POMDP","w+")
+	filewriter = open(TrialName+"_rational.POMDP","w+")
 	filewriter.write('discount: '+str(FutureDiscount)+'\nvalues: reward\n')
 	PrintList('states', States, filewriter)
 	PrintList('actions', Actions, filewriter)
