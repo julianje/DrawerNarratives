@@ -9,7 +9,7 @@ ProgressBars = True
 DrawerDimensions = [4, 4] # Rows followed by colum ns
 Rationality = 0.01
 # Build filenames
-Basefile = 'POMDPs/Drawer'+str(DrawerDimensions[0])+'x'+str(DrawerDimensions[1])+'space'
+Basefile = 'POMDPs/Drawer'+str(DrawerDimensions[0])+'x'+str(DrawerDimensions[1])+'space_rational'
 WorldModel = Basefile+'.POMDP'
 AgentModel = Basefile+'.policy'
 OpenDrawers = []
