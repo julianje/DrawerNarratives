@@ -71,7 +71,7 @@ class Observer:
 		self.InitializeHandPosition()
 		# Re initialize posterior
 		self.Posterior = []
-		# now construct space of actions:
+		# now build space of actions:
 		ActionSpace = [list(x) for x in permutations(self.OpenDrawers)]
 		Distances = [self.ComputeActionDistance(x, cultural=cultural) for x in ActionSpace]
 		sys.stdout.write("Original action space = "+str(len(ActionSpace))+".")
@@ -83,6 +83,7 @@ class Observer:
 		#for ac in ActionSpace:
 		#	sys.stdout.write(str(ac)+"\n")
 		# End of action space reduction
+		DrawerPositions = [x[1:] for x in self.OpenDrawers] # This is just used to optimize
 		if progressbar:
 			bar = IncrementalBar('', max=len(self.KHypotheses)*len(ActionSpace), suffix='%(percent)d%%')
 		for CurrHypothesis in self.KHypotheses:
@@ -99,7 +100,11 @@ class Observer:
 				myPosterior = Hypothesis.Hypothesis(CurrHypothesis[0],CurrHypothesis[1],self.HandPosition, Playactions, p)
 				self.Posterior.append(myPosterior)
 				continue
-			# Ok now run inference for each combination:
+			# Ok now run inference for each combination once we know it's not a play hypothesis
+			# QUICK OPTIMIZE: IF KNOWLEDGE HYPOTHESIS IS YOU KNOW IT'S IN X BUT YOU DIDN'T EVEN OPEN X
+			# THEN PROBABILITY IS 0 SO JUST SKIP IT
+			if CurrHypothesis[0][1:] not in DrawerPositions:
+				continue # So we don't even store it. That way if it's not in the csv we know that it didn't get considered
 			for actiontest in ActionSpace:
 				if progressbar:
 					bar.next()
