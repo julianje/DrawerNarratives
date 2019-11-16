@@ -74,12 +74,12 @@ class Observer:
 		# now build space of actions:
 		ActionSpace = [list(x) for x in permutations(self.OpenDrawers)]
 		Distances = [self.ComputeActionDistance(x, cultural=cultural) for x in ActionSpace]
-		sys.stdout.write("Original action space = "+str(len(ActionSpace))+".")
+		sys.stdout.write(str(len(ActionSpace))+" trajectories cut down to ")
 		# Now reduce action space based on dumboptimize percentage:
 		ActionsConsidered = int(np.ceil(len(Distances)*dumboptimize/100))
 		ActionIndices = np.argsort(Distances)[:ActionsConsidered]
 		ActionSpace = [ActionSpace[x] for x in ActionIndices]
-		sys.stdout.write("Revised action space = "+str(len(ActionSpace))+"\n")
+		sys.stdout.write(str(len(ActionSpace))+"\n")
 		#for ac in ActionSpace:
 		#	sys.stdout.write(str(ac)+"\n")
 		# End of action space reduction
@@ -87,6 +87,8 @@ class Observer:
 		if progressbar:
 			bar = IncrementalBar('', max=len(self.KHypotheses)*len(ActionSpace), suffix='%(percent)d%%')
 		for CurrHypothesis in self.KHypotheses:
+			if progressbar:
+				bar.next()
 			if CurrHypothesis[0] == "Play":
 				# In play, assume costs did not factor into choice but agent was noenetheless efficient
 				StateSpaceSize = self.DrawerDimensions[0] * self.DrawerDimensions[1]
@@ -95,9 +97,9 @@ class Observer:
 				# Get most efficient action space:
 				# This code is very similar to the one above, but adding the initial hand position to get the most efficient action space:
 				ActionSpaceB = [['m0-0']+list(x) for x in permutations(self.OpenDrawers)]
-				DistancesB = [self.ComputeActionDistance(x) for x in ActionSpaceB]
-				Playactions = ActionSpace[np.argsort(DistancesB)[0]]
-				myPosterior = Hypothesis.Hypothesis(CurrHypothesis[0],CurrHypothesis[1],self.HandPosition, Playactions, p)
+				DistancesB = [self.ComputeActionDistance(x, cultural=cultural) for x in ActionSpaceB]
+				Playactions = ActionSpaceB[np.argsort(DistancesB)[0]]
+				myPosterior = Hypothesis.Hypothesis(CurrHypothesis[0],CurrHypothesis[1],self.HandPosition, Playactions[1:], p) # Playactions[1:] because we remove the initial handposition thbat we used to compute the most efficient startig poitn
 				self.Posterior.append(myPosterior)
 				continue
 			# Ok now run inference for each combination once we know it's not a play hypothesis
@@ -106,8 +108,6 @@ class Observer:
 			if CurrHypothesis[0][1:] not in DrawerPositions:
 				continue # So we don't even store it. That way if it's not in the csv we know that it didn't get considered
 			for actiontest in ActionSpace:
-				if progressbar:
-					bar.next()
 				#sys.stdout.write('/')
 				self.Model.setbeliefs(self.BuildInitialKnowledge(CurrHypothesis[1])) # Initialize knowledge
 				p = np.log(CurrHypothesis[2]) # Initialize with the prior
