@@ -13,8 +13,10 @@ Rationality = 0.01
 # Build filenames
 if CulturalModel:
 	Basefile = 'POMDPs/Drawer'+str(DrawerDimensions[0])+'x'+str(DrawerDimensions[1])+'space_cultural'
+	Outputfile = 'DrawerPredictions_cultural.csv'
 else:
 	Basefile = 'POMDPs/Drawer'+str(DrawerDimensions[0])+'x'+str(DrawerDimensions[1])+'space_rational'
+	Outputfile = 'DrawerPredictions_rational.csv'
 WorldModel = Basefile+'.POMDP'
 AgentModel = Basefile+'.policy'
 OpenDrawers = []
@@ -22,8 +24,6 @@ OpenDrawers = []
 sys.stdout.write("Loading model and policy...\n")
 Observer = Observer.Observer(WorldModel, AgentModel, OpenDrawers, DrawerDimensions)
 Observer.load()
-
-Outputfile = 'DrawerPredictions.csv'
 
 # Part 2: LOAD EACH TRIAL AND RUN
 #################################
