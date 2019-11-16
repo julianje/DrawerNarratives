@@ -85,7 +85,7 @@ class Observer:
 		# End of action space reduction
 		DrawerPositions = [x[1:] for x in self.OpenDrawers] # This is just used to optimize
 		if progressbar:
-			bar = IncrementalBar('', max=len(self.KHypotheses)*len(ActionSpace), suffix='%(percent)d%%')
+			bar = IncrementalBar('', max=len(self.KHypotheses), suffix='%(percent)d%%')
 		for CurrHypothesis in self.KHypotheses:
 			if progressbar:
 				bar.next()
