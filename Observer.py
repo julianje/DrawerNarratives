@@ -32,22 +32,40 @@ class Observer:
 	def load(self):
 		self.Model.loadPOMDP()
 
-	def ComputeActionDistance(self, actions):
+	def ComputeActionDistance(self, actions, cultural=False):
 		"""
 		Internal supporting function.
-		Take a list of actions and compute total distance that the hand travelled
+		Take a list of actions and compute total distance that the hand travelled.
+		When cultural is set to False it computes euclidean distance.
+		When cultural is set to True we do account for cultural costs meaning:
+		(i) moving from right-most drawer to left-most one in a consecutive way is a cost of 0
+		(ii) oving horizontally is faster than moving vertically
 		"""
 		# Transform actions into coordinates
 		ActionCoords = [[int(x[1]),int(x[3])] for x in actions]
-		dist = sum([(ActionCoords[i-1][0]-ActionCoords[i][0])**2 + (ActionCoords[i-1][1]-ActionCoords[i][1])**2 for i in range(1,len(ActionCoords))])
+		if not cultural:
+			dist = sum([(ActionCoords[i-1][0]-ActionCoords[i][0])**2 + (ActionCoords[i-1][1]-ActionCoords[i][1])**2 for i in range(1,len(ActionCoords))])
+		else:
+			dist = 0
+			for i in range(1,len(ActionCoords)):
+				d = 1.5*(ActionCoords[i-1][0]-ActionCoords[i][0])**2 + (ActionCoords[i-1][1]-ActionCoords[i][1])**2
+				# Check if you're not moving from end of a drawer to beginning of next.
+				# First check is whether you're on the last column and whether the next state you're in the first row
+				if (ActionCoords[i-1][1] == (self.DrawerDimensions[1]-1)) and ActionCoords[i][1] == 0:
+					# Now check if you moved exactly one row down:
+					if ActionCoords[i][0] == ActionCoords[i-1][0]+1:
+						#sys.stdout.write(str(ActionCoords[i-1])+" // "+str(ActionCoords[i])+"\n")
+						d = 0 # Delete distance
+				dist += d
 		return dist
 
-	def InferKnowledge(self, tau=0.1, progressbar = True, dumboptimize=100):
+	def InferKnowledge(self, tau=0.1, progressbar = True, dumboptimize=100, cultural=False):
 		"""
 		Infer what initial knowledge best explains open drawers
 		This code first generates all hypotheses, and then duplicates each one to account for potential remembering
 		This is for efficiency because if the agent remembered, it will always happen in the last frame.
 		# Dumb optimize receives a percentage p and only considers the p% of shortest action paths.
+		# The cultural flag is just piped into the distance computation since you need it for the dumboptimize
 		"""
 		self.BuildKHypothesisSpace() # Build knowledge hypothesis spaces
 		self.InitializeHandPosition()
@@ -55,11 +73,15 @@ class Observer:
 		self.Posterior = []
 		# now construct space of actions:
 		ActionSpace = [list(x) for x in permutations(self.OpenDrawers)]
-		Distances = [self.ComputeActionDistance(x) for x in ActionSpace]
+		Distances = [self.ComputeActionDistance(x, cultural=cultural) for x in ActionSpace]
+		sys.stdout.write("Original action space = "+str(len(ActionSpace))+".")
 		# Now reduce action space based on dumboptimize percentage:
 		ActionsConsidered = int(np.ceil(len(Distances)*dumboptimize/100))
 		ActionIndices = np.argsort(Distances)[:ActionsConsidered]
 		ActionSpace = [ActionSpace[x] for x in ActionIndices]
+		sys.stdout.write("Revised action space = "+str(len(ActionSpace))+"\n")
+		#for ac in ActionSpace:
+		#	sys.stdout.write(str(ac)+"\n")
 		# End of action space reduction
 		if progressbar:
 			bar = IncrementalBar('', max=len(self.KHypotheses)*len(ActionSpace), suffix='%(percent)d%%')
@@ -366,8 +388,6 @@ class Observer:
 				p = H.Belief
 				Drawers = '_'.join(self.OpenDrawers)
 				filewriter.writerow([tid, Time, Drawers, Actions, KT, p])
-			#filewriter.writerow(['Spam'] * 5 + ['Baked Beans'])
-			#filewriter.writerow(['Spam', 'Lovely Spam', 'Wonderful Spam'])
 
 	def PlotPosterior(self, FinalPosterior, Title='', DeleteZeros=True):
 		""" 

@@ -3,13 +3,18 @@ import Observer
 import sys
 import csv
 
+CulturalModel = True
+
 # Part 1: LOAD WORLD AND AGENT MODELS
 #####################################
 ProgressBars = True
 DrawerDimensions = [4, 4] # Rows followed by colum ns
 Rationality = 0.01
 # Build filenames
-Basefile = 'POMDPs/Drawer'+str(DrawerDimensions[0])+'x'+str(DrawerDimensions[1])+'space_rational'
+if CulturalModel:
+	Basefile = 'POMDPs/Drawer'+str(DrawerDimensions[0])+'x'+str(DrawerDimensions[1])+'space_cultural'
+else:
+	Basefile = 'POMDPs/Drawer'+str(DrawerDimensions[0])+'x'+str(DrawerDimensions[1])+'space_rational'
 WorldModel = Basefile+'.POMDP'
 AgentModel = Basefile+'.policy'
 OpenDrawers = []
@@ -38,7 +43,7 @@ with open('DrawerInputData_Exp.csv') as csv_file:
 			Observer.DrawerColors = np.reshape(DrawerColors, (DrawerDimensions[0], DrawerDimensions[1]))
 		dumboptimize = int(trial[3]) # Dumboptimize takes a percentage and it only considered that percentage of paths sorted by their efficiency
 		# This helps in just not considering paths that are too inefficient and would therefore have probabiliy 0 otherwise
-		Observer.InferKnowledge(Rationality, progressbar = ProgressBars, dumboptimize = dumboptimize)
+		Observer.InferKnowledge(Rationality, progressbar = ProgressBars, dumboptimize = dumboptimize, cultural = CulturalModel)
 		Observer.NormalizePosterior(rounded=True)
 		if WriteHeader:
 			Observer.SaveResults(filename=Outputfile, tid=TrialName, header=True)
