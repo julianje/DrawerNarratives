@@ -102,7 +102,7 @@ def BuildPOMDP(TrialName, DrawerDimensions, PlanningReward = 50, FutureDiscount 
 				if R[index][0][1:4] == R[index][2][1:4]:
 					Startcoords = [int(x) for x in ExecState[1:4].split('-')]
 					Endcoords = [int(x) for x in FinalState[1:4].split('-')]
-					Cost = np.sqrt((Startcoords[0]-Endcoords[0])**2+((Startcoords[1]-Endcoords[1])*1.5)**2)
+					Cost = np.sqrt(((Startcoords[0]-Endcoords[0])*1.5)**2+((Startcoords[1]-Endcoords[1])*1)**2)
 					# CULTURAL CODE
 					###############
 					# CHANGE 1: LEFT-TO-RIGHT BIAS
