@@ -48,7 +48,7 @@ class Observer:
 		else:
 			dist = 0
 			for i in range(1,len(ActionCoords)):
-				d = 1.5*(ActionCoords[i-1][0]-ActionCoords[i][0])**2 + (ActionCoords[i-1][1]-ActionCoords[i][1])**2
+				d = ((ActionCoords[i-1][0]-ActionCoords[i][0])*1.5)**2 + (ActionCoords[i-1][1]-ActionCoords[i][1])**2
 				# Check if you're not moving from end of a drawer to beginning of next.
 				# First check is whether you're on the last column and whether the next state you're in the first row
 				if (ActionCoords[i-1][1] == (self.DrawerDimensions[1]-1)) and ActionCoords[i][1] == 0:
