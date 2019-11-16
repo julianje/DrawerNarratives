@@ -105,7 +105,7 @@ class Observer:
 			# Ok now run inference for each combination once we know it's not a play hypothesis
 			# QUICK OPTIMIZE: IF KNOWLEDGE HYPOTHESIS IS YOU KNOW IT'S IN X BUT YOU DIDN'T EVEN OPEN X
 			# THEN PROBABILITY IS 0 SO JUST SKIP IT
-			if CurrHypothesis[0][1:] not in DrawerPositions:
+			if (len(CurrHypothesis[0]) == 4) and (CurrHypothesis[0][1:] not in DrawerPositions):
 				continue # So we don't even store it. That way if it's not in the csv we know that it didn't get considered
 			for actiontest in ActionSpace:
 				#sys.stdout.write('/')
